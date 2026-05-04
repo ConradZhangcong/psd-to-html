@@ -46,6 +46,11 @@ npm run dev -- ./design.psd
 - sharp - 图像处理
 - fs-extra - 文件操作
 
+## 已知问题
+
+- [ ] 字体宽度计算不准确，相同的宽度在html中文本宽度超过标签宽度导致自动换行
+- [ ] line-height 计算不准确
+
 ## 待办 / 可扩展方向
 
 - [ ] 支持 WebP 格式输出（目前仅 PNG）
