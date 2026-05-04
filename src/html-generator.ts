@@ -4,6 +4,16 @@ function escapeHtmlAttr(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function escapeHtmlContent(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\r\n?|\n/g, '<br>');
+}
+
 function colorToCss(color: { r: number; g: number; b: number; a: number }): string {
   const { r, g, b, a } = color;
   if (a < 1) {
@@ -12,30 +22,30 @@ function colorToCss(color: { r: number; g: number; b: number; a: number }): stri
   return `#${Math.round(r * 255).toString(16).padStart(2, '0')}${Math.round(g * 255).toString(16).padStart(2, '0')}${Math.round(b * 255).toString(16).padStart(2, '0')}`;
 }
 
-function renderSegments(segments: TextSegment[]): string {
+function renderSegments(segments: TextSegment[], scale: number): string {
   return segments
     .map(seg => {
       const style = [
         `font-family: '${seg.fontName}', sans-serif`,
-        `font-size: ${seg.fontSize}px`,
+        `font-size: ${Math.round(seg.fontSize * scale)}px`,
         `color: ${colorToCss(seg.color)}`,
       ].join('; ');
-      return `<span style="${style}">${escapeHtmlAttr(seg.text)}</span>`;
+      return `<span style="${style}">${escapeHtmlContent(seg.text)}</span>`;
     })
     .join('');
 }
 
-function generateLayerHtml(layer: LayerInfo, indent: string = '  '): string {
+function generateLayerHtml(layer: LayerInfo, indent: string = '  ', scale: number = 1): string {
   if (!layer.visible) return '';
 
   const style: string[] = [];
 
   style.push(`position: absolute`);
-  style.push(`left: ${layer.left}px`);
-  style.push(`top: ${layer.top}px`);
+  style.push(`left: ${Math.round(layer.left * scale)}px`);
+  style.push(`top: ${Math.round(layer.top * scale)}px`);
 
-  if (layer.width > 0) style.push(`width: ${layer.width}px`);
-  if (layer.height > 0) style.push(`height: ${layer.height}px`);
+  if (layer.width > 0) style.push(`width: ${Math.round(layer.width * scale)}px`);
+  if (layer.height > 0) style.push(`height: ${Math.round(layer.height * scale)}px`);
 
   if (layer.opacity < 1) {
     style.push(`opacity: ${layer.opacity}`);
@@ -44,7 +54,7 @@ function generateLayerHtml(layer: LayerInfo, indent: string = '  '): string {
   if (layer.type === 'text' && layer.text) {
     const { text } = layer;
     style.push(`font-family: '${text.fontName}', sans-serif`);
-    style.push(`font-size: ${text.fontSize}px`);
+    style.push(`font-size: ${Math.round(text.fontSize * scale)}px`);
     style.push(`color: ${colorToCss(text.color)}`);
     style.push(`line-height: 1.2`);
 
@@ -52,9 +62,8 @@ function generateLayerHtml(layer: LayerInfo, indent: string = '  '): string {
       style.push(`text-align: ${text.alignment}`);
     }
 
-    // Render as image if text has multiple segments with different styles
     if (text.segments && text.segments.length > 1) {
-      const inner = renderSegments(text.segments);
+      const inner = renderSegments(text.segments, scale);
       return `${indent}<div style="${style.join('; ')}">${inner}</div>\n`;
     }
   }
@@ -65,12 +74,12 @@ function generateLayerHtml(layer: LayerInfo, indent: string = '  '): string {
 
   let inner = '';
   if (layer.type === 'text' && layer.text) {
-    inner = escapeHtmlAttr(layer.text.content);
+    inner = escapeHtmlContent(layer.text.content);
   }
 
   if (layer.children && layer.children.length > 0) {
     const childrenHtml = layer.children
-      .map(child => generateLayerHtml(child, indent + '  '))
+      .map(child => generateLayerHtml(child, indent + '  ', scale))
       .filter(Boolean)
       .join('');
     inner += `\n${childrenHtml}${indent}`;
@@ -84,10 +93,15 @@ export function generateHtml(
   layers: LayerInfo[],
   psdWidth: number,
   psdHeight: number,
-  fontsUsage: FontInfo[]
+  fontsUsage: FontInfo[],
+  psdPpi = 72
 ): string {
+  const scale = 96 / psdPpi;
+  const scaledWidth = Math.round(psdWidth * scale);
+  const scaledHeight = Math.round(psdHeight * scale);
+
   const bodyContent = layers
-    .map(layer => generateLayerHtml(layer))
+    .map(layer => generateLayerHtml(layer, '  ', scale))
     .filter(Boolean)
     .join('');
 
@@ -104,8 +118,8 @@ export function generateHtml(
   body { font-family: ${fontList || 'sans-serif'}; }
   .psd-container {
     position: relative;
-    width: ${psdWidth}px;
-    height: ${psdHeight}px;
+    width: ${scaledWidth}px;
+    height: ${scaledHeight}px;
     margin: 0 auto;
   }
   </style>

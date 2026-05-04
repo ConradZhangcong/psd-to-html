@@ -2,11 +2,11 @@ import PSD from 'psd';
 import type { LayerInfo, FontInfo } from './types.js';
 
 let layerCounter = 0;
-
-const PT_TO_PX = 96 / 72; // 1pt = 1.333px
+let psdPpi = 72; // default PPI
 
 function ptToPx(pt: number): number {
-  return Math.round(pt * PT_TO_PX);
+  // Convert pt to px based on PSD's actual PPI: 1pt = PPI/72 px
+  return Math.round(pt * psdPpi / 72);
 }
 
 function extractTextSegments(textData: any): Array<{
@@ -185,9 +185,18 @@ export function parsePsd(psdPath: string): {
   width: number;
   height: number;
   fonts: FontInfo[];
+  psdPpi: number;
 } {
   const psd = PSD.fromFile(psdPath);
   psd.parse();
+
+  // Read PSD resolution to calculate pt-to-px conversion
+  const resInfo = psd.resources?.resource('resolutionInfo') as any;
+  if (resInfo?.h_res != null && resInfo?.h_res_unit === 1) {
+    psdPpi = resInfo.h_res; // h_res is in pixels per inch when unit is 1
+  } else {
+    psdPpi = 72; // default
+  }
 
   const header = psd.header;
   const width = header?.width || 1920;
@@ -202,5 +211,5 @@ export function parsePsd(psdPath: string): {
     .map((layer: any) => processLayer(layer, fonts))
     .filter((l: any): l is LayerInfo => l !== null);
 
-  return { layers, width, height, fonts };
+  return { layers, width, height, fonts, psdPpi };
 }

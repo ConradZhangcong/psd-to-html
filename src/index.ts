@@ -47,7 +47,7 @@ async function main() {
   console.log(`Output Dir: ${outputDir}`);
 
   try {
-    const { layers, width, height, fonts } = parsePsd(psdPath);
+    const { layers, width, height, fonts, psdPpi } = parsePsd(psdPath);
     console.log(`Found ${layers.length} top-level layers (${width}x${height})`);
 
     await fs.ensureDir(outputDir);
@@ -57,7 +57,7 @@ async function main() {
     const { images, layerMap } = await exportAllImages(layers, psdName, imagesDir);
     console.log(`Exported ${images.length} images`);
 
-    const html = generateHtml(layers, width, height, fonts);
+    const html = generateHtml(layers, width, height, fonts, psdPpi);
     const fontsUsageJson = generateFontsUsage(fonts);
 
     const htmlPath = path.join(outputDir, 'index.html');
