@@ -57,7 +57,7 @@ async function main() {
     const { images, layerMap } = await exportAllImages(layers, psdName, imagesDir);
     console.log(`Exported ${images.length} images`);
 
-    const html = generateHtml(layers, width, height, fonts, psdPpi);
+    const html = generateHtml(layers, width, height, fonts);
     const fontsUsageJson = generateFontsUsage(fonts);
 
     const htmlPath = path.join(outputDir, 'index.html');

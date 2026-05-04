@@ -110,11 +110,26 @@ function processLayer(layer: any, fonts: FontInfo[]): LayerInfo | null {
   const left = layer.left || 0;
   const bottom = layer.bottom || 0;
   const right = layer.right || 0;
-  const width = (right - left) || (layer.width || 0);
-  const height = (bottom - top) || (layer.height || 0);
+  let width = (right - left) || (layer.width || 0);
+  let height = (bottom - top) || (layer.height || 0);
 
   const opacity = layer.opacity !== undefined ? layer.opacity / 255 : 1;
   const visible = layer.visible !== false;
+
+  if (isTextLayer) {
+    // For text layers, use the larger value between PSD bbox and rendered pixels
+    try {
+      const png = layer.toPng();
+      if (png?.width && png?.height) {
+        width = Math.max(width, png.width);
+        height = Math.max(height, png.height);
+      }
+    } catch {
+      // Ignore if toPng fails for text layers
+    }
+    // Add padding to account for font rendering differences
+    width = Math.round(width);
+  }
 
   const layerInfo: LayerInfo = {
     id: `layer_${index}`,
