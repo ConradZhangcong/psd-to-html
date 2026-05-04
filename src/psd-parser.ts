@@ -15,6 +15,8 @@ function extractTextSegments(textData: any): Array<{
   fontSize: number;
   color: { r: number; g: number; b: number; a: number };
   alignment: string;
+  letterSpacing?: number;
+  lineHeight?: number;
 }> {
   const value = textData.value || '';
   const font = textData.font || {};
@@ -23,11 +25,34 @@ function extractTextSegments(textData: any): Array<{
   const sizes = font.sizes || [];
   const colors = font.colors || [];
   const lengthArray = font.lengthArray || [];
+  const letterSpacings = font.letterSpacing || [];
+  const leadings = font.leading || [];
+
+  // Convert PSD leading (pt) to CSS unitless line-height
+  // In PSD, leading = 0 or negative means "auto leading" (typically ~120% of font size)
+  // For wrapped text, use the ratio of leading to font size as unitless line-height
+  const leadingToLineHeight = (leadingPt: number, fontSizePt: number): number | undefined => {
+    if (leadingPt == null || fontSizePt == null || fontSizePt <= 0) return undefined;
+
+    // PSD auto-leading: 0 or negative value means "auto" (use default)
+    if (leadingPt <= 0) return undefined;
+
+    // Ratio of leading to font size gives the unitless line-height
+    // e.g., leading=20pt, fontSize=16pt → line-height = 20/16 = 1.25
+    const ratio = leadingPt / fontSizePt;
+
+    // Sanity check: reasonable line-height range is 0.8 to 3.0
+    // Values outside this range are likely incorrect PSD data
+    if (ratio < 0.8 || ratio > 3.0) return undefined;
+
+    return Math.round(ratio * 100) / 100;
+  };
 
   // If no rich text segments, return single segment
   if (lengthArray.length <= 1) {
     const fontName = names[0] || 'Arial';
     const fontSize = ptToPx(sizes[0] || 16);
+    const fontSizePt = sizes[0] || 16;
     let color = { r: 0, g: 0, b: 0, a: 1 };
     if (colors[0]) {
       color = {
@@ -36,6 +61,18 @@ function extractTextSegments(textData: any): Array<{
         b: (colors[0][2] ?? 0) / 255,
         a: (colors[0][3] ?? 255) / 255,
       };
+    }
+
+    // letter-spacing: PSD uses em units, convert to px
+    let letterSpacing: number | undefined = undefined;
+    if (letterSpacings[0] != null && letterSpacings[0] !== 0) {
+      letterSpacing = Math.round(letterSpacings[0] * fontSize * 100) / 100;
+    }
+
+    // line-height from leading
+    let lineHeight: number | undefined = undefined;
+    if (leadings[0] != null) {
+      lineHeight = leadingToLineHeight(leadings[0], fontSizePt);
     }
 
     const alignmentMap: Record<string, string> = {
@@ -49,6 +86,8 @@ function extractTextSegments(textData: any): Array<{
       fontSize,
       color,
       alignment: alignmentMap[rawAlign] || String(rawAlign || 'left'),
+      letterSpacing,
+      lineHeight,
     }];
   }
 
@@ -59,6 +98,8 @@ function extractTextSegments(textData: any): Array<{
     fontSize: number;
     color: { r: number; g: number; b: number; a: number };
     alignment: string;
+    letterSpacing?: number;
+    lineHeight?: number;
   }> = [];
 
   let offset = 0;
@@ -69,6 +110,7 @@ function extractTextSegments(textData: any): Array<{
 
     const fontName = names[i] || names[0] || 'Arial';
     const fontSize = ptToPx(sizes[i] || sizes[0] || 16);
+    const fontSizePt = sizes[i] || sizes[0] || 16;
     let color = { r: 0, g: 0, b: 0, a: 1 };
     if (colors[i]) {
       color = {
@@ -77,6 +119,20 @@ function extractTextSegments(textData: any): Array<{
         b: (colors[i][2] ?? 0) / 255,
         a: (colors[i][3] ?? 255) / 255,
       };
+    }
+
+    // letter-spacing
+    let letterSpacing: number | undefined = undefined;
+    const ls = letterSpacings[i] ?? letterSpacings[0];
+    if (ls != null && ls !== 0) {
+      letterSpacing = Math.round(ls * fontSize * 100) / 100;
+    }
+
+    // line-height
+    let lineHeight: number | undefined = undefined;
+    const leading = leadings[i] ?? leadings[0];
+    if (leading != null) {
+      lineHeight = leadingToLineHeight(leading, fontSizePt);
     }
 
     const alignmentMap: Record<string, string> = {
@@ -90,6 +146,8 @@ function extractTextSegments(textData: any): Array<{
       fontSize,
       color,
       alignment: alignmentMap[rawAlign] || String(rawAlign || 'left'),
+      letterSpacing,
+      lineHeight,
     });
   }
 
@@ -128,7 +186,7 @@ function processLayer(layer: any, fonts: FontInfo[]): LayerInfo | null {
       // Ignore if toPng fails for text layers
     }
     // Add padding to account for font rendering differences
-    width = Math.round(width);
+    width = Math.round(width) + 20;
   }
 
   const layerInfo: LayerInfo = {
@@ -149,12 +207,37 @@ function processLayer(layer: any, fonts: FontInfo[]): LayerInfo | null {
     if (segments.length > 0) {
       // Use first segment for layer-level text info
       const primary = segments[0];
+      let lineHeight = primary.lineHeight;
+
+      // For wrapped text (multi-line), improve line-height calculation
+      // If text contains newlines or the layer width suggests wrapping,
+      // estimate line-height from actual rendered height when PSD leading is unavailable
+      if (lineHeight == null && height > 0 && primary.fontSize > 0) {
+        // Estimate line-height from rendered height if we have multiple lines
+        const textContent = segments.map(s => s.text).join('');
+        const hasNewline = textContent.includes('\n') || textContent.includes('\r');
+        // Rough estimate: if text is long enough to likely wrap given the width
+        const charsPerLine = width > 0 ? Math.floor(width / (primary.fontSize * 0.6)) : 0;
+        const estimatedRows = charsPerLine > 0 ? Math.ceil(textContent.length / charsPerLine) : 1;
+
+        if (hasNewline || estimatedRows > 1) {
+          // Use rendered height to estimate line-height
+          // lineHeight = totalHeight / rows, then normalize to unitless
+          const estimatedLineHeight = height / estimatedRows / primary.fontSize;
+          if (estimatedLineHeight > 0.8 && estimatedLineHeight < 3.0) {
+            lineHeight = Math.round(estimatedLineHeight * 100) / 100;
+          }
+        }
+      }
+
       layerInfo.text = {
         content: segments.map(s => s.text).join(''),
         fontName: primary.fontName,
         fontSize: primary.fontSize,
         color: primary.color,
         alignment: primary.alignment,
+        letterSpacing: primary.letterSpacing,
+        lineHeight,
         segments: segments.length > 1 ? segments : undefined,
       };
 

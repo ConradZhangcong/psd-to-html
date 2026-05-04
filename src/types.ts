@@ -11,6 +11,8 @@ export interface TextSegment {
   fontSize: number;
   color: { r: number; g: number; b: number; a: number };
   alignment: string;
+  letterSpacing?: number;
+  lineHeight?: number;
 }
 
 export interface LayerImageData {
@@ -36,6 +38,7 @@ export interface LayerInfo {
     fontSize: number;
     color: { r: number; g: number; b: number; a: number };
     alignment?: string;
+    letterSpacing?: number;
     lineHeight?: number;
     segments?: TextSegment[];
   };

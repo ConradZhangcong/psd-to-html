@@ -29,8 +29,14 @@ function renderSegments(segments: TextSegment[]): string {
         `font-family: '${seg.fontName}', sans-serif`,
         `font-size: ${Math.round(seg.fontSize)}px`,
         `color: ${colorToCss(seg.color)}`,
-      ].join('; ');
-      return `<span style="${style}">${escapeHtmlContent(seg.text)}</span>`;
+      ];
+      if (seg.letterSpacing != null) {
+        style.push(`letter-spacing: ${seg.letterSpacing}px`);
+      }
+      if (seg.lineHeight != null) {
+        style.push(`line-height: ${seg.lineHeight}`);
+      }
+      return `<span style="${style.join('; ')}">${escapeHtmlContent(seg.text)}</span>`;
     })
     .join('');
 }
@@ -60,7 +66,16 @@ function generateLayerHtml(layer: LayerInfo, indent: string = '  '): string {
     style.push(`font-family: '${text.fontName}', sans-serif`);
     style.push(`font-size: ${Math.round(text.fontSize)}px`);
     style.push(`color: ${colorToCss(text.color)}`);
-    style.push(`line-height: 1.2`);
+
+    if (text.lineHeight != null) {
+      style.push(`line-height: ${text.lineHeight}`);
+    } else {
+      style.push(`line-height: 1.2`);
+    }
+
+    if (text.letterSpacing != null) {
+      style.push(`letter-spacing: ${text.letterSpacing}px`);
+    }
 
     if (text.alignment) {
       style.push(`text-align: ${text.alignment}`);
