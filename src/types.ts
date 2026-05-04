@@ -1,10 +1,16 @@
-import type { Psd, Layer } from 'ag-psd';
-
 export interface FontInfo {
   fontName: string;
   postScriptName: string;
-  fontSize: number;
+  fontSize?: number;
   fillColor?: { r: number; g: number; b: number; a: number };
+}
+
+export interface TextSegment {
+  text: string;
+  fontName: string;
+  fontSize: number;
+  color: { r: number; g: number; b: number; a: number };
+  alignment: string;
 }
 
 export interface LayerImageData {
@@ -31,16 +37,9 @@ export interface LayerInfo {
     color: { r: number; g: number; b: number; a: number };
     alignment?: string;
     lineHeight?: number;
+    segments?: TextSegment[];
   };
   imagePath?: string;
   imageData?: LayerImageData;
   children?: LayerInfo[];
-}
-
-export interface ConversionResult {
-  html: string;
-  fontsUsage: FontInfo[];
-  exportedImages: string[];
-  psdWidth: number;
-  psdHeight: number;
 }

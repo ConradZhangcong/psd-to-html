@@ -2,17 +2,14 @@ import fs from 'fs-extra';
 import sharp from 'sharp';
 import type { LayerInfo } from './types.js';
 
-const OUTPUT_DIR = 'dist';
-const IMAGES_DIR = `${OUTPUT_DIR}/images`;
-
-export async function ensureOutputDirs(): Promise<void> {
-  await fs.ensureDir(OUTPUT_DIR);
-  await fs.ensureDir(IMAGES_DIR);
+export async function ensureOutputDirs(imagesDir: string): Promise<void> {
+  await fs.ensureDir(imagesDir);
 }
 
 export async function exportLayerImage(
   layer: LayerInfo,
-  psdName: string
+  psdName: string,
+  imagesDir: string
 ): Promise<string | undefined> {
   if (!layer.imageData || layer.type === 'text' || layer.type === 'group') {
     return undefined;
@@ -27,7 +24,7 @@ export async function exportLayerImage(
     const buffer = Buffer.from(data);
 
     const filename = `${psdName}_layer_${layer.index}.png`;
-    const outputPath = `${IMAGES_DIR}/${filename}`;
+    const outputPath = `${imagesDir}/${filename}`;
 
     await sharp(buffer, {
       raw: {
@@ -48,13 +45,14 @@ export async function exportLayerImage(
 
 export async function exportAllImages(
   layers: LayerInfo[],
-  psdName: string
+  psdName: string,
+  imagesDir: string
 ): Promise<{ images: string[]; layerMap: Map<string, string> }> {
   const images: string[] = [];
   const layerMap = new Map<string, string>();
 
   for (const layer of layers) {
-    const path = await exportLayerImage(layer, psdName);
+    const path = await exportLayerImage(layer, psdName, imagesDir);
     if (path) {
       images.push(path);
       layerMap.set(layer.id, path);

@@ -1,4 +1,8 @@
-import type { LayerInfo, FontInfo, ConversionResult } from './types.js';
+import type { LayerInfo, FontInfo, TextSegment } from './types.js';
+
+function escapeHtmlAttr(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 function colorToCss(color: { r: number; g: number; b: number; a: number }): string {
   const { r, g, b, a } = color;
@@ -6,6 +10,19 @@ function colorToCss(color: { r: number; g: number; b: number; a: number }): stri
     return `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a})`;
   }
   return `#${Math.round(r * 255).toString(16).padStart(2, '0')}${Math.round(g * 255).toString(16).padStart(2, '0')}${Math.round(b * 255).toString(16).padStart(2, '0')}`;
+}
+
+function renderSegments(segments: TextSegment[]): string {
+  return segments
+    .map(seg => {
+      const style = [
+        `font-family: '${seg.fontName}', sans-serif`,
+        `font-size: ${seg.fontSize}px`,
+        `color: ${colorToCss(seg.color)}`,
+      ].join('; ');
+      return `<span style="${style}">${escapeHtmlAttr(seg.text)}</span>`;
+    })
+    .join('');
 }
 
 function generateLayerHtml(layer: LayerInfo, indent: string = '  '): string {
@@ -26,7 +43,7 @@ function generateLayerHtml(layer: LayerInfo, indent: string = '  '): string {
 
   if (layer.type === 'text' && layer.text) {
     const { text } = layer;
-    style.push(`font-family: "${text.fontName}", sans-serif`);
+    style.push(`font-family: '${text.fontName}', sans-serif`);
     style.push(`font-size: ${text.fontSize}px`);
     style.push(`color: ${colorToCss(text.color)}`);
     style.push(`line-height: 1.2`);
@@ -34,15 +51,21 @@ function generateLayerHtml(layer: LayerInfo, indent: string = '  '): string {
     if (text.alignment) {
       style.push(`text-align: ${text.alignment}`);
     }
+
+    // Render as image if text has multiple segments with different styles
+    if (text.segments && text.segments.length > 1) {
+      const inner = renderSegments(text.segments);
+      return `${indent}<div style="${style.join('; ')}">${inner}</div>\n`;
+    }
   }
 
   if (layer.type === 'image' && layer.imagePath) {
-    return `${indent}<img src="${layer.imagePath}" alt="${layer.name}" style="${style.join('; ')}" />\n`;
+    return `${indent}<img src="${layer.imagePath}" alt="${escapeHtmlAttr(layer.name)}" style="${style.join('; ')}" />\n`;
   }
 
   let inner = '';
   if (layer.type === 'text' && layer.text) {
-    inner = layer.text.content;
+    inner = escapeHtmlAttr(layer.text.content);
   }
 
   if (layer.children && layer.children.length > 0) {
@@ -68,9 +91,7 @@ export function generateHtml(
     .filter(Boolean)
     .join('');
 
-  const fontsCss = fontsUsage
-    .map(f => `/* Font: ${f.postScriptName} (${f.fontName}) - fontSize: ${f.fontSize}px */`)
-    .join('\n  ');
+  const fontList = [...new Set(fontsUsage.map(f => f.fontName))].join(', ');
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -80,14 +101,13 @@ export function generateHtml(
   <title>PSD to HTML Output</title>
   <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: sans-serif; }
+  body { font-family: ${fontList || 'sans-serif'}; }
   .psd-container {
     position: relative;
     width: ${psdWidth}px;
     height: ${psdHeight}px;
     margin: 0 auto;
   }
-  ${fontsCss ? `\n  /* Fonts used in this PSD */\n  ${fontsCss}\n  ` : ''}
   </style>
 </head>
 <body>
@@ -99,12 +119,13 @@ ${bodyContent}
 }
 
 export function generateFontsUsage(fonts: FontInfo[]): string {
-  const unique = new Map<string, FontInfo>();
+  const seen = new Set<string>();
+  const unique: FontInfo[] = [];
   for (const f of fonts) {
-    const key = `${f.postScriptName}_${f.fontSize}`;
-    if (!unique.has(key)) {
-      unique.set(key, { ...f });
+    if (!seen.has(f.fontName)) {
+      seen.add(f.fontName);
+      unique.push({ fontName: f.fontName, postScriptName: f.postScriptName });
     }
   }
-  return JSON.stringify(Array.from(unique.values()), null, 2);
+  return JSON.stringify(unique, null, 2);
 }

@@ -1,66 +1,125 @@
-import { readPsd, decodeLayerPixels } from 'ag-psd';
-import fs from 'fs-extra';
+import PSD from 'psd';
 import type { LayerInfo, FontInfo } from './types.js';
 
 let layerCounter = 0;
 
-function extractTextStyle(layer: any): LayerInfo['text'] | undefined {
-  if (!layer.text) return undefined;
+const PT_TO_PX = 96 / 72; // 1pt = 1.333px
 
-  const textData = layer.text;
-  const styles = textData.styles?.[0] || {};
+function ptToPx(pt: number): number {
+  return Math.round(pt * PT_TO_PX);
+}
 
-  const fontSize = styles.fontSize || 16;
-  const fontName = styles.fontName || 'Arial';
+function extractTextSegments(textData: any): Array<{
+  text: string;
+  fontName: string;
+  fontSize: number;
+  color: { r: number; g: number; b: number; a: number };
+  alignment: string;
+}> {
+  const value = textData.value || '';
+  const font = textData.font || {};
 
-  let color = { r: 0, g: 0, b: 0, a: 1 };
-  if (styles.fillColor) {
-    color = {
-      r: styles.fillColor[0] ?? 0,
-      g: styles.fillColor[1] ?? 0,
-      b: styles.fillColor[2] ?? 0,
-      a: styles.fillColor[3] ?? 1,
+  const names = font.names || [];
+  const sizes = font.sizes || [];
+  const colors = font.colors || [];
+  const lengthArray = font.lengthArray || [];
+
+  // If no rich text segments, return single segment
+  if (lengthArray.length <= 1) {
+    const fontName = names[0] || 'Arial';
+    const fontSize = ptToPx(sizes[0] || 16);
+    let color = { r: 0, g: 0, b: 0, a: 1 };
+    if (colors[0]) {
+      color = {
+        r: (colors[0][0] ?? 0) / 255,
+        g: (colors[0][1] ?? 0) / 255,
+        b: (colors[0][2] ?? 0) / 255,
+        a: (colors[0][3] ?? 255) / 255,
+      };
+    }
+
+    const alignmentMap: Record<string, string> = {
+      'left': 'left', 'center': 'center', 'right': 'right', 'justify': 'justify',
     };
-  } else if (styles.color) {
-    color = {
-      r: styles.color[0] ?? 0,
-      g: styles.color[1] ?? 0,
-      b: styles.color[2] ?? 0,
-      a: styles.color[3] ?? 1,
-    };
+    const rawAlign = font.alignment?.[0] || 'left';
+
+    return [{
+      text: value,
+      fontName,
+      fontSize,
+      color,
+      alignment: alignmentMap[rawAlign] || String(rawAlign || 'left'),
+    }];
   }
 
-  const content = textData.text || '';
+  // Parse rich text segments based on lengthArray
+  const segments: Array<{
+    text: string;
+    fontName: string;
+    fontSize: number;
+    color: { r: number; g: number; b: number; a: number };
+    alignment: string;
+  }> = [];
 
-  return {
-    content,
-    fontName,
-    fontSize,
-    color,
-    alignment: styles.alignment || 'left',
-  };
+  let offset = 0;
+  for (let i = 0; i < lengthArray.length; i++) {
+    const len = lengthArray[i];
+    const segmentText = value.substring(offset, offset + len);
+    offset += len;
+
+    const fontName = names[i] || names[0] || 'Arial';
+    const fontSize = ptToPx(sizes[i] || sizes[0] || 16);
+    let color = { r: 0, g: 0, b: 0, a: 1 };
+    if (colors[i]) {
+      color = {
+        r: (colors[i][0] ?? 0) / 255,
+        g: (colors[i][1] ?? 0) / 255,
+        b: (colors[i][2] ?? 0) / 255,
+        a: (colors[i][3] ?? 255) / 255,
+      };
+    }
+
+    const alignmentMap: Record<string, string> = {
+      'left': 'left', 'center': 'center', 'right': 'right', 'justify': 'justify',
+    };
+    const rawAlign = font.alignment?.[i] || font.alignment?.[0] || 'left';
+
+    segments.push({
+      text: segmentText,
+      fontName,
+      fontSize,
+      color,
+      alignment: alignmentMap[rawAlign] || String(rawAlign || 'left'),
+    });
+  }
+
+  return segments;
 }
 
 function processLayer(layer: any, fonts: FontInfo[]): LayerInfo | null {
   if (!layer) return null;
 
   const index = layerCounter++;
-  const bounds = layer.bounds || { left: 0, top: 0, right: 0, bottom: 0 };
-  const left = bounds.left || 0;
-  const top = bounds.top || 0;
-  const width = (bounds.right || 0) - left;
-  const height = (bounds.bottom || 0) - top;
+  const name = layer.name || `Layer ${index}`;
+  const exported = layer.export?.();
+  const textData = exported?.text;
+  const isTextLayer = !!textData;
+  const isGroup = layer.type === 'group';
+
+  const top = layer.top || 0;
+  const left = layer.left || 0;
+  const bottom = layer.bottom || 0;
+  const right = layer.right || 0;
+  const width = (right - left) || (layer.width || 0);
+  const height = (bottom - top) || (layer.height || 0);
 
   const opacity = layer.opacity !== undefined ? layer.opacity / 255 : 1;
-  const visible = !layer.hidden;
-
-  const isTextLayer = !!layer.text;
-  const isGroup = !!layer.children;
+  const visible = layer.visible !== false;
 
   const layerInfo: LayerInfo = {
     id: `layer_${index}`,
     index,
-    name: layer.name || `Layer ${index}`,
+    name,
     type: isTextLayer ? 'text' : isGroup ? 'group' : 'image',
     left,
     top,
@@ -70,35 +129,50 @@ function processLayer(layer: any, fonts: FontInfo[]): LayerInfo | null {
     visible,
   };
 
-  if (isTextLayer) {
-    layerInfo.text = extractTextStyle(layer);
-    if (layerInfo.text) {
-      fonts.push({
-        fontName: layerInfo.text.fontName,
-        postScriptName: layerInfo.text.fontName,
-        fontSize: layerInfo.text.fontSize,
-        fillColor: layerInfo.text.color,
-      });
+  if (isTextLayer && textData) {
+    const segments = extractTextSegments(textData);
+    if (segments.length > 0) {
+      // Use first segment for layer-level text info
+      const primary = segments[0];
+      layerInfo.text = {
+        content: segments.map(s => s.text).join(''),
+        fontName: primary.fontName,
+        fontSize: primary.fontSize,
+        color: primary.color,
+        alignment: primary.alignment,
+        segments: segments.length > 1 ? segments : undefined,
+      };
+
+      // Collect all unique fonts used in this layer
+      for (const seg of segments) {
+        fonts.push({
+          fontName: seg.fontName,
+          postScriptName: seg.fontName,
+          fontSize: seg.fontSize,
+          fillColor: seg.color,
+        });
+      }
     }
   }
 
-  if (!isTextLayer && !isGroup) {
+  if (!isGroup && !isTextLayer) {
     try {
-      decodeLayerPixels(layer, true);
-      if (layer.imageData) {
+      const png = layer.toPng();
+      if (png?.data) {
         layerInfo.imageData = {
-          data: layer.imageData.data,
-          width: layer.imageData.width,
-          height: layer.imageData.height,
+          data: new Uint8Array(png.data),
+          width: png.width,
+          height: png.height,
         };
       }
     } catch (err) {
-      console.warn(`Could not decode pixels for layer ${layerInfo.name}:`, err);
+      console.warn(`Could not export PNG for layer ${name}:`, err);
     }
   }
 
   if (isGroup && layer.children) {
-    layerInfo.children = layer.children
+    const children = layer.children() || [];
+    layerInfo.children = children
       .map((child: any) => processLayer(child, fonts))
       .filter((l: any): l is LayerInfo => l !== null);
   }
@@ -112,18 +186,19 @@ export function parsePsd(psdPath: string): {
   height: number;
   fonts: FontInfo[];
 } {
-  const buffer = fs.readFileSync(psdPath);
-  const psd = readPsd(buffer, {
-    useImageData: true,
-    skipCompositeImageData: true,
-  });
+  const psd = PSD.fromFile(psdPath);
+  psd.parse();
 
-  const width = psd.width || 1920;
-  const height = psd.height || 1080;
+  const header = psd.header;
+  const width = header?.width || 1920;
+  const height = header?.height || 1080;
+
+  const root = psd.tree();
   const fonts: FontInfo[] = [];
   layerCounter = 0;
 
-  const layers: LayerInfo[] = (psd.children || [])
+  const children = (root.children() || []).reverse();
+  const layers: LayerInfo[] = children
     .map((layer: any) => processLayer(layer, fonts))
     .filter((l: any): l is LayerInfo => l !== null);
 

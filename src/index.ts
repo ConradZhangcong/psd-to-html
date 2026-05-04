@@ -38,26 +38,30 @@ async function main() {
     console.warn('Consider increasing Node.js memory limit: node --max-old-space-size=4096 ...');
   }
 
-  const psdName = path.basename(psdPath, '.psd').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const psdName = path.basename(psdPath, path.extname(psdPath)).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const outputDir = path.join('output', psdName);
+  const imagesDir = path.join(outputDir, 'images');
 
   console.log(`Parsing PSD: ${psdPath}`);
   console.log(`PSD Name: ${psdName}`);
+  console.log(`Output Dir: ${outputDir}`);
 
   try {
     const { layers, width, height, fonts } = parsePsd(psdPath);
     console.log(`Found ${layers.length} top-level layers (${width}x${height})`);
 
-    await ensureOutputDirs();
-    console.log('Output directories created: dist/, dist/images/');
+    await fs.ensureDir(outputDir);
+    await fs.ensureDir(imagesDir);
+    console.log(`Output directories created: ${outputDir}/, ${imagesDir}/`);
 
-    const { images, layerMap } = await exportAllImages(layers, psdName);
+    const { images, layerMap } = await exportAllImages(layers, psdName, imagesDir);
     console.log(`Exported ${images.length} images`);
 
     const html = generateHtml(layers, width, height, fonts);
     const fontsUsageJson = generateFontsUsage(fonts);
 
-    const htmlPath = path.join(__dirname, '../dist/index.html');
-    const fontsPath = path.join(__dirname, '../dist/fonts_usage.json');
+    const htmlPath = path.join(outputDir, 'index.html');
+    const fontsPath = path.join(outputDir, 'fonts_usage.json');
 
     await fs.writeFile(htmlPath, html, 'utf-8');
     await fs.writeFile(fontsPath, fontsUsageJson, 'utf-8');
@@ -65,7 +69,8 @@ async function main() {
     console.log('\nConversion complete!');
     console.log(`  HTML: ${htmlPath}`);
     console.log(`  Fonts: ${fontsPath}`);
-    console.log(`  Images: ${images.length} files in dist/images/`);
+    console.log(`  Images: ${images.length} files in ${imagesDir}/`);
+
 
   } catch (err) {
     console.error('Error during conversion:', err);
